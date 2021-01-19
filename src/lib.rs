@@ -1,22 +1,24 @@
-extern crate libc;
 #[macro_use]
 extern crate lazy_static;
-extern crate time;
-extern crate toml;
+extern crate libc;
 #[macro_use]
 extern crate serde_derive;
+extern crate time;
+extern crate toml;
+extern crate serde;
+
+use std::io::Cursor;
 
 use agent::Agent;
-use bytecode::printer::ClassfilePrinter;
 use bytecode::classfile::Constant;
 use bytecode::io::ClassWriter;
+use bytecode::printer::ClassfilePrinter;
 use config::Config;
 use context::static_context;
 use instrumentation::asm::transformer::Transformer;
-use native::{JavaVMPtr, MutString, VoidPtr, ReturnValue};
+use native::{JavaVMPtr, MutString, ReturnValue, VoidPtr};
 use options::Options;
 use runtime::*;
-use std::io::Cursor;
 use thread::Thread;
 use util::stringify;
 
@@ -49,7 +51,7 @@ pub mod version;
 
 fn on_method_entry(event: MethodInvocationEvent) {
     let shall_record = match static_context().config.read() {
-        Ok(cfg) => (*cfg).entry_points.iter().any(|item| *item == format!("{}.{}.{}", event.class_sig.package, event.class_sig.name, event.method_sig.name) ), //event.class_name.as_str() == item),
+        Ok(cfg) => (*cfg).entry_points.iter().any(|item| *item == format!("{}.{}.{}", event.class_sig.package, event.class_sig.name, event.method_sig.name)), //event.class_name.as_str() == item),
         _ => false
     };
 
@@ -69,7 +71,9 @@ fn on_method_exit(event: MethodInvocationEvent) {
 }
 
 fn on_thread_start(thread: Thread) {
-    println!("[TS-{}]", thread.name);
+    // println!("[TS-{}]", thread.name);
+
+    println!("thread start !!. {:?}", thread);
 
     static_context().thread_start(&thread.id);
 }
@@ -175,7 +179,7 @@ fn on_object_free() {
 #[allow(non_snake_case, unused_variables)]
 pub extern fn Agent_OnLoad(vm: JavaVMPtr, options: MutString, reserved: VoidPtr) -> ReturnValue {
     let options = Options::parse(stringify(options));
-    println!("Starting up as {}", options.agent_id);
+    println!("Agent_OnLoad Starting up as {}", options.agent_id);
 
     if let Some(config) = Config::read_config() {
         println!("Setting configuration");
@@ -192,14 +196,52 @@ pub extern fn Agent_OnLoad(vm: JavaVMPtr, options: MutString, reserved: VoidPtr)
     //agent.on_method_entry(Some(on_method_entry));
     //agent.on_method_exit(Some(on_method_exit));
     agent.on_thread_start(Some(on_thread_start));
-    agent.on_thread_end(Some(on_thread_end));
+    /*agent.on_thread_end(Some(on_thread_end));
     agent.on_monitor_wait(Some(on_monitor_wait));
     agent.on_monitor_waited(Some(on_monitor_waited));
     agent.on_monitor_contended_enter(Some(on_monitor_contended_enter));
-    agent.on_monitor_contended_entered(Some(on_monitor_contended_entered));
+    agent.on_monitor_contended_entered(Some(on_monitor_contended_entered));*/
     //agent.on_class_file_load(Some(on_class_file_load));
 
     agent.update();
+
+    return 0;
+}
+
+
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+pub extern fn Agent_OnAttach(vm: JavaVMPtr, options: MutString, reserved: VoidPtr) -> ReturnValue {
+    let options = Options::parse(stringify(options));
+    println!("Agent_OnAttach Starting up as {}", options.agent_id);
+
+    if let Some(config) = Config::read_config() {
+        println!("Setting configuration");
+        static_context().set_config(config);
+    }
+
+    let mut agent = Agent::new(vm);
+
+    //agent.on_garbage_collection_start(Some(on_garbage_collection_start));
+    //agent.on_garbage_collection_finish(Some(on_garbage_collection_finish));
+    //agent.on_vm_object_alloc(Some(on_object_alloc));
+    //agent.on_vm_object_free(Some(on_object_free));
+    //agent.on_class_file_load(Some(on_class_file_load));
+    //agent.on_method_entry(Some(on_method_entry));
+    //agent.on_method_exit(Some(on_method_exit));
+    agent.on_thread_start(Some(on_thread_start));
+    /*agent.on_thread_end(Some(on_thread_end));
+    agent.on_monitor_wait(Some(on_monitor_wait));
+    agent.on_monitor_waited(Some(on_monitor_waited));
+    agent.on_monitor_contended_enter(Some(on_monitor_contended_enter));
+    agent.on_monitor_contended_entered(Some(on_monitor_contended_entered));*/
+    //agent.on_class_file_load(Some(on_class_file_load));
+
+    agent.update();
+
+    println!("开始 获取加载类========================");
+    agent.get_loaded_classes();
+    println!("结束 获取加载类========================");
 
     return 0;
 }
@@ -211,5 +253,4 @@ pub extern fn Agent_OnLoad(vm: JavaVMPtr, options: MutString, reserved: VoidPtr)
 ///
 #[no_mangle]
 #[allow(non_snake_case, unused_variables)]
-pub extern fn Agent_OnUnload(vm: JavaVMPtr) {
-}
+pub extern fn Agent_OnUnload(vm: JavaVMPtr) {}

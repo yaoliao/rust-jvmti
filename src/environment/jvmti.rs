@@ -11,6 +11,7 @@ use super::super::version::VersionNumber;
 use super::super::native::{MutString, MutByteArray, JavaClass, JavaObject, JavaInstance, JavaLong, JavaThread, JVMTIEnvPtr};
 use super::super::native::jvmti_native::{Struct__jvmtiThreadInfo, jvmtiCapabilities};
 use std::ptr;
+use native::jvmti_native::{jint, jclass};
 
 pub trait JVMTI {
 
@@ -37,6 +38,9 @@ pub trait JVMTI {
     fn get_class_signature(&self, class_id: &ClassId) -> Result<ClassSignature, NativeError>;
     fn allocate(&self, len: usize) -> Result<MemoryAllocation, NativeError>;
     fn deallocate(&self);
+
+    /// 获取所有已加载的类
+    fn get_loaded_classes(&self)-> Result<Vec<ClassSignature>, NativeError>;
 }
 
 pub struct JVMTIEnvironment {
@@ -211,5 +215,33 @@ impl JVMTI for JVMTIEnvironment {
 
     fn deallocate(&self) {
 
+    }
+
+    fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError> {
+
+        println!("get_loaded_classes ================");
+        unsafe {
+            let mut class_count = 0 as jint;
+            let class_count_ptr = &mut class_count as *mut jint;
+
+            //let mut jstruct: JavaInstance = JavaInstance { _hacky_hack_workaround: 0 };
+            //let mut jclass_instance: JavaClass = &mut jstruct;
+            // let jclass: *mut JavaClass = &mut jclass_instance;
+            // let jclass = &mut jclass_instance;
+
+
+            todo!("这个数组大小不确定啊。。。。。。。。。 这个要怎么做啊");
+            // let mut classes_ptr = Vec::<*mut jclass>::new().as_mut_ptr();
+            //let mut classes_ptr = std::ptr::null_mut();
+            let mut classes_ptr = Vec::<*mut jclass>::with_capacity(1024*100).as_mut_ptr();
+
+
+            (**self.jvmti).GetLoadedClasses.unwrap()(self.jvmti, class_count_ptr, classes_ptr);
+
+            let size = *class_count_ptr as u32;
+            println!("================ loaded class : {}", size);
+        }
+
+        Ok(Vec::new())
     }
 }

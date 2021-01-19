@@ -212,4 +212,9 @@ impl Agent {
     pub fn on_class_file_load(&mut self, handler: Option<FnClassFileLoad>) {
         self.callbacks.class_file_load_hook = handler;
     }
+
+    ///
+    pub fn get_loaded_classes(&mut self){
+        self.environment.get_loaded_classes();
+    }
 }

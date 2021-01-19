@@ -73,6 +73,10 @@ impl JVMTI for Environment {
     fn deallocate(&self) {
         self.jvmti.deallocate()
     }
+
+    fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError> {
+        self.jvmti.get_loaded_classes()
+    }
 }
 
 impl JNI for Environment {

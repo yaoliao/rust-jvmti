@@ -107,4 +107,9 @@ impl JVMTI for JVMEmulator {
     fn deallocate(&self) {
 
     }
+
+    fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError> {
+        todo!();
+        Ok(Vec::new())
+    }
 }
