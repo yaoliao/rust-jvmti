@@ -230,11 +230,14 @@ impl JVMTI for JVMTIEnvironment {
             // let jclass = &mut jclass_instance;
 
 
-            todo!("这个数组大小不确定啊。。。。。。。。。 这个要怎么做啊");
-            // let mut classes_ptr = Vec::<*mut jclass>::new().as_mut_ptr();
-            //let mut classes_ptr = std::ptr::null_mut();
-            let mut classes_ptr = Vec::<*mut jclass>::with_capacity(1024*100).as_mut_ptr();
 
+            //let mut classes_ptr = std::ptr::null_mut();
+            //let mut classes_ptr = Vec::<*mut jclass>::with_capacity(1024*100).as_mut_ptr();
+
+            /// 完美啊 ！！！！！！！！！！！
+            let mut native_sig: *mut jclass = ptr::null_mut();
+            let classes_ptr: *mut *mut jclass = &mut native_sig;
+            println!("get_loaded_classes 111111 ================");
 
             (**self.jvmti).GetLoadedClasses.unwrap()(self.jvmti, class_count_ptr, classes_ptr);
 
