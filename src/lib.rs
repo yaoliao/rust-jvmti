@@ -237,7 +237,11 @@ pub extern fn Agent_OnAttach(vm: JavaVMPtr, options: MutString, reserved: VoidPt
     agent.on_monitor_contended_entered(Some(on_monitor_contended_entered));*/
     //agent.on_class_file_load(Some(on_class_file_load));
 
+    // 打开 can_tag_objects 的能力
+    agent.can_tag_objects(true);
+
     agent.update();
+
 
     println!("开始 获取加载类========================");
     agent.get_loaded_classes();

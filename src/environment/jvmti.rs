@@ -1,20 +1,24 @@
+use std::ptr;
+use std::slice;
+
+use native::jvmti_native::{jclass, jint, jlong, jvmtiHeapCallbacks, jvmtiHeapReferenceKind, jvmtiHeapReferenceInfo, jvmtiHeapReferenceCallback};
+
 use super::super::capabilities::Capabilities;
 use super::super::class::{ClassId, ClassSignature, JavaType};
-use super::super::error::{wrap_error, NativeError};
+use super::super::error::{NativeError, wrap_error};
 use super::super::event::{EventCallbacks, VMEvent};
 use super::super::event_handler::*;
 use super::super::mem::MemoryAllocation;
 use super::super::method::{MethodId, MethodSignature};
-use super::super::thread::{ThreadId, Thread};
+use super::super::native::{JavaClass, JavaInstance, JavaLong, JavaObject, JavaThread, JVMTIEnvPtr, MutByteArray, MutString};
+use super::super::native::jvmti_native::{jvmtiCapabilities, Struct__jvmtiThreadInfo};
+use super::super::thread::{Thread, ThreadId};
 use super::super::util::stringify;
 use super::super::version::VersionNumber;
-use super::super::native::{MutString, MutByteArray, JavaClass, JavaObject, JavaInstance, JavaLong, JavaThread, JVMTIEnvPtr};
-use super::super::native::jvmti_native::{Struct__jvmtiThreadInfo, jvmtiCapabilities};
-use std::ptr;
-use native::jvmti_native::{jint, jclass};
+use std::ptr::{null, null_mut};
+use std::os::raw::c_void;
 
 pub trait JVMTI {
-
     ///
     /// Return the JVM TI version number, which includes major, minor and micro version numbers.
     ///
@@ -40,11 +44,10 @@ pub trait JVMTI {
     fn deallocate(&self);
 
     /// 获取所有已加载的类
-    fn get_loaded_classes(&self)-> Result<Vec<ClassSignature>, NativeError>;
+    fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError>;
 }
 
 pub struct JVMTIEnvironment {
-
     jvmti: JVMTIEnvPtr
 }
 
@@ -55,7 +58,6 @@ impl JVMTIEnvironment {
 }
 
 impl JVMTI for JVMTIEnvironment {
-
     fn get_version_number(&self) -> VersionNumber {
         unsafe {
             let mut version: i32 = 0;
@@ -68,7 +70,7 @@ impl JVMTI for JVMTIEnvironment {
 
     fn add_capabilities(&mut self, new_capabilities: &Capabilities) -> Result<Capabilities, NativeError> {
         let native_caps = new_capabilities.to_native();
-        let caps_ptr:*const jvmtiCapabilities = &native_caps;
+        let caps_ptr: *const jvmtiCapabilities = &native_caps;
 
         unsafe {
             match wrap_error((**self.jvmti).AddCapabilities.unwrap()(self.jvmti, caps_ptr)) {
@@ -123,7 +125,10 @@ impl JVMTI for JVMTIEnvironment {
 
     fn set_event_notification_mode(&mut self, event: VMEvent, mode: bool) -> Option<NativeError> {
         unsafe {
-            let mode_i = match mode { true => 1, false => 0 };
+            let mode_i = match mode {
+                true => 1,
+                false => 0
+            };
             let sptr: JavaObject = ptr::null_mut();
 
             match wrap_error((**self.jvmti).SetEventNotificationMode.unwrap()(self.jvmti, mode_i, event as u32, sptr)) {
@@ -134,7 +139,7 @@ impl JVMTI for JVMTIEnvironment {
     }
 
     fn get_thread_info(&self, thread_id: &JavaThread) -> Result<Thread, NativeError> {
-        let mut info = Struct__jvmtiThreadInfo { name: ptr::null_mut(), priority: 0, is_daemon: 0, thread_group: ptr::null_mut(), context_class_loader: ptr::null_mut()};
+        let mut info = Struct__jvmtiThreadInfo { name: ptr::null_mut(), priority: 0, is_daemon: 0, thread_group: ptr::null_mut(), context_class_loader: ptr::null_mut() };
         let mut info_ptr = &mut info;
 
         unsafe {
@@ -145,11 +150,11 @@ impl JVMTI for JVMTIEnvironment {
                             id: ThreadId { native_id: *thread_id },
                             name: stringify((*info_ptr).name),
                             priority: (*info_ptr).priority as u32,
-                            is_daemon: if (*info_ptr).is_daemon > 0 { true } else { false }
+                            is_daemon: if (*info_ptr).is_daemon > 0 { true } else { false },
                         }),
-                        err@_ => Err(err)
+                        err @ _ => Err(err)
                     }
-                },
+                }
                 None => Err(NativeError::NoError)
             }
         }
@@ -213,22 +218,17 @@ impl JVMTI for JVMTIEnvironment {
         }
     }
 
-    fn deallocate(&self) {
-
-    }
+    fn deallocate(&self) {}
 
     fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError> {
-
         println!("get_loaded_classes ================");
         unsafe {
-            let mut class_count = 0 as jint;
-            let class_count_ptr = &mut class_count as *mut jint;
+            let class_count_ptr = &mut 0 as *mut jint;
 
             //let mut jstruct: JavaInstance = JavaInstance { _hacky_hack_workaround: 0 };
             //let mut jclass_instance: JavaClass = &mut jstruct;
             // let jclass: *mut JavaClass = &mut jclass_instance;
             // let jclass = &mut jclass_instance;
-
 
 
             //let mut classes_ptr = std::ptr::null_mut();
@@ -243,8 +243,53 @@ impl JVMTI for JVMTIEnvironment {
 
             let size = *class_count_ptr as u32;
             println!("================ loaded class : {}", size);
+
+            // 存储 ClassSignature
+            let mut vec = Vec::<ClassSignature>::with_capacity(size as usize);
+
+            let class = slice::from_raw_parts_mut(native_sig, size as usize);
+            for (index, elem) in class.iter_mut().enumerate() {
+                let class_id = ClassId { native_id: *elem };
+                let class_signature = self.get_class_signature(&class_id).ok().unwrap();
+                println!("index:{}, package: {}, name: {}", index, class_signature.package, class_signature.name);
+
+                vec.push(class_signature);
+
+                // 设置 tag
+                let s = (**self.jvmti).SetTag.unwrap()(self.jvmti, *elem, (index + 1) as jlong);
+            }
+
+            // 获取 tag
+            unsafe {
+                for (index, elem) in class.iter_mut().enumerate() {
+                    let tag_ptr = &mut 0 as *mut jlong;
+                    // 设置 tag
+                    let s = (**self.jvmti).GetTag.unwrap()(self.jvmti, *elem, tag_ptr);
+                    println!("get tag index: {},  tag: {},  result: {}", index, *tag_ptr, s);
+                }
+            }
+            //  fn(env: *mut jvmtiEnv, heap_filter: jint, klass: jclass, initial_object: jobject, callbacks: *const jvmtiHeapCallbacks, user_data: *const c_void) -> jvmtiError>,
+
+            println!("FollowReferences  =============");
+
+            let mut callback = jvmtiHeapCallbacks::default();
+            callback.heap_reference_callback = Some(heap_reference_callback);
+            (**self.jvmti).FollowReferences.unwrap()(self.jvmti, 0 as jint, ptr::null_mut(), ptr::null_mut(), &callback, ptr::null());
+
         }
 
         Ok(Vec::new())
     }
+
+
 }
+
+unsafe extern "C" fn heap_reference_callback(reference_kind: jvmtiHeapReferenceKind, reference_info: *const jvmtiHeapReferenceInfo, class_tag: jlong,
+                                             referrer_class_tag: jlong, size: jlong, tag_ptr: *mut jlong, referrer_tag_ptr: *mut jlong, length: jint,
+                                             user_data: *mut c_void) -> jint {
+    println!("====================== call back class tag :{}", class_tag);
+
+    0 as jint
+}
+
+

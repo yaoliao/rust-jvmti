@@ -217,4 +217,9 @@ impl Agent {
     pub fn get_loaded_classes(&mut self){
         self.environment.get_loaded_classes();
     }
+
+    // 设置 can_tag_objects 的功能
+    pub fn can_tag_objects(&mut self, bool: bool) {
+        self.capabilities.can_tag_objects = bool;
+    }
 }
