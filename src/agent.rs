@@ -7,6 +7,7 @@ use super::error::*;
 use super::native::JavaVMPtr;
 use super::options::Options;
 use super::version::VersionNumber;
+use class::ClassSignature;
 
 pub struct Agent {
     jvm: Box<JVMF>,
@@ -214,8 +215,12 @@ impl Agent {
     }
 
     ///
-    pub fn get_loaded_classes(&mut self){
-        self.environment.get_loaded_classes();
+    pub fn get_loaded_classes(&mut self) -> Result<Vec<ClassSignature>, NativeError> {
+        self.environment.get_loaded_classes()
+    }
+
+    pub fn print_class_histo(&mut self){
+        self.environment.print_class_histo()
     }
 
     // 设置 can_tag_objects 的功能

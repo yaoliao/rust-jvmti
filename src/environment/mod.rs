@@ -77,6 +77,10 @@ impl JVMTI for Environment {
     fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError> {
         self.jvmti.get_loaded_classes()
     }
+
+    fn print_class_histo(&self) {
+        self.jvmti.print_class_histo()
+    }
 }
 
 impl JNI for Environment {

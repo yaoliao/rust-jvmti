@@ -112,4 +112,8 @@ impl JVMTI for JVMEmulator {
         todo!();
         Ok(Vec::new())
     }
+
+    fn print_class_histo(&self) {
+        todo!();
+    }
 }

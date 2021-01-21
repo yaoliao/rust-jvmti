@@ -1,7 +1,13 @@
+use std::collections::HashMap;
+use std::os::raw::{c_int, c_void};
 use std::ptr;
+use std::ptr::{null, null_mut};
 use std::slice;
 
-use native::jvmti_native::{jclass, jint, jlong, jvmtiHeapCallbacks, jvmtiHeapReferenceKind, jvmtiHeapReferenceInfo, jvmtiHeapReferenceCallback, JVMTI_VISIT_OBJECTS};
+use native::jvmti_native::{jclass, jint, jlong, JVMTI_ERROR_NULL_POINTER,
+                           JVMTI_VISIT_OBJECTS, jvmtiHeapCallbacks,
+                           jvmtiHeapIterationCallback, jvmtiHeapReferenceCallback, jvmtiHeapReferenceInfo,
+                           jvmtiHeapReferenceKind};
 
 use super::super::capabilities::Capabilities;
 use super::super::class::{ClassId, ClassSignature, JavaType};
@@ -15,9 +21,7 @@ use super::super::native::jvmti_native::{jvmtiCapabilities, Struct__jvmtiThreadI
 use super::super::thread::{Thread, ThreadId};
 use super::super::util::stringify;
 use super::super::version::VersionNumber;
-use std::ptr::{null, null_mut};
-use std::os::raw::{c_void, c_int};
-use std::collections::HashMap;
+use event_callback::*;
 
 pub trait JVMTI {
     ///
@@ -46,6 +50,8 @@ pub trait JVMTI {
 
     /// 获取所有已加载的类
     fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError>;
+    /// 打印堆中所有的类的柱状图. jmap -histo <PID>
+    fn print_class_histo(&self);
 }
 
 pub struct JVMTIEnvironment {
@@ -222,101 +228,97 @@ impl JVMTI for JVMTIEnvironment {
     fn deallocate(&self) {}
 
     fn get_loaded_classes(&self) -> Result<Vec<ClassSignature>, NativeError> {
-        println!("get_loaded_classes ================");
+        unsafe{
+            let class_count_ptr = &mut 0 as *mut jint;
+            let mut native_sig: *mut jclass = ptr::null_mut();
+            let classes_ptr: *mut *mut jclass = &mut native_sig;
+
+            let err = wrap_error((**self.jvmti).GetLoadedClasses.unwrap()(self.jvmti, class_count_ptr, classes_ptr));
+            if NativeError::NoError != err {
+                return return Err(err);
+            }
+
+            let size = *class_count_ptr as u32;
+
+            let mut vec = Vec::<ClassSignature>::with_capacity(size as usize);
+            let class = slice::from_raw_parts_mut(native_sig, size as usize);
+            for (index, elem) in class.iter_mut().enumerate() {
+                let class_id = ClassId { native_id: *elem };
+                let class_signature = self.get_class_signature(&class_id)?;
+                vec.push(class_signature);
+            }
+            Ok(vec)
+        }
+    }
+
+    fn print_class_histo(&self) {
         unsafe {
             let class_count_ptr = &mut 0 as *mut jint;
 
-            /// 完美啊 ！！！！！！！！！！！
             let mut native_sig: *mut jclass = ptr::null_mut();
             let classes_ptr: *mut *mut jclass = &mut native_sig;
-            println!("get_loaded_classes 111111 ================");
 
             (**self.jvmti).GetLoadedClasses.unwrap()(self.jvmti, class_count_ptr, classes_ptr);
 
             let size = *class_count_ptr as u32;
-            println!("================ loaded class : {}", size);
 
-            // 存储 ClassSignature
+            // 存储 tag->ClassSignature
             let mut map = HashMap::new();
 
             let class = slice::from_raw_parts_mut(native_sig, size as usize);
             for (index, elem) in class.iter_mut().enumerate() {
                 let class_id = ClassId { native_id: *elem };
                 let class_signature = self.get_class_signature(&class_id).ok().unwrap();
-                println!("tag:{}, package: {}, name: {}", index + 1, class_signature.package, class_signature.name);
+                //println!("tag:{}, package: {}, name: {}", index + 1, class_signature.package, class_signature.name);
 
                 // 设置 tag
                 let s = (**self.jvmti).SetTag.unwrap()(self.jvmti, *elem, (index + 1) as jlong);
                 map.insert((index + 1) as jlong, class_signature);
             }
 
-            // // 获取 tag
-            // unsafe {
-            //     for (index, elem) in class.iter_mut().enumerate() {
-            //         let tag_ptr = &mut (0 as jlong) as *mut jlong;
-            //         // 设置 tag
-            //         let s = (**self.jvmti).GetTag.unwrap()(self.jvmti, *elem, tag_ptr);
-            //         println!("get tag index: {},  tag: {},  result: {}", index, *tag_ptr, s);
-            //     }
-            // }
-            //  fn(env: *mut jvmtiEnv, heap_filter: jint, klass: jclass, initial_object: jobject, callbacks: *const jvmtiHeapCallbacks, user_data: *const c_void) -> jvmtiError>,
+            let mut result_map: HashMap<jlong, ClassResultInfo> = HashMap::new();
 
-            println!("FollowReferences  =============");
-
-
-            let mut count_map: HashMap<jlong, usize> = HashMap::new();
-
-            let closure = |result: jlong| {
-                let s = map.get(&result).unwrap();
-                let count = count_map.get(&result);
-                match count_map.get(&result) {
-                    Some(count) => { count_map.insert(result, count + 1); }
-                    None => { count_map.insert(result, 1); }
-                }
-                println!("callback callback callback callback callback tag:{} ====================== {}", result, s.name);
+            let closure = |tag: jlong, size: jlong| {
+                let s = map.get(&tag).unwrap();
+                let mut info = result_map.entry(tag).or_insert(ClassResultInfo {
+                    class_signature: s.clone(),
+                    size: 0,
+                    count: 0,
+                });
+                info.size += size;
+                info.count += 1;
             };
 
-            let userCallBack = get_callback(&closure);
+            let reference_callback = get_reference_callback(&closure);
+            let iter_callback = get_iteration_callback(&closure);
 
             let mut callback = jvmtiHeapCallbacks::default();
-            callback.heap_reference_callback = userCallBack;
+            callback.heap_iteration_callback = iter_callback;
+            // callback.heap_reference_callback = reference_callback;
 
-            (**self.jvmti).FollowReferences.unwrap()(self.jvmti, 0 as jint, ptr::null_mut(), ptr::null_mut(), &callback, &closure as *const _ as *const c_void);
+            let user_date: *const c_void = &closure as *const _ as *const c_void;
 
-            println!("all count : {}", count_map.len());
-            for (tag, count) in count_map {
-                let mut classSignature = map.get(&tag).unwrap().clone();
-                let mut s = classSignature.package + ".";
-                s += &classSignature.name;
-                println!("result =====  class:{},  count:{}", s, count);
+            // FollowReferences 可以获得引用关系
+            (**self.jvmti).FollowReferences.unwrap()(self.jvmti, 0 as jint, ptr::null_mut(), ptr::null_mut(), &callback, user_date);
+
+            // IterateThroughHeap 遍历所有堆中对象，包括无法访达的对象
+            (**self.jvmti).IterateThroughHeap.unwrap()(self.jvmti, 0, ptr::null_mut(), &callback, user_date);
+
+            let mut vec = Vec::<&ClassResultInfo>::with_capacity(result_map.len());
+            for x in result_map.values() {
+                vec.push(x);
+            }
+
+            vec.sort_by(|x, y| y.size.cmp(&x.size));
+
+            for info in vec {
+                println!("{}", info.to_string());
             }
         }
-
-        Ok(Vec::new())
     }
 
-
-}
-
-unsafe extern "C" fn heap_reference_callback<F>(reference_kind: jvmtiHeapReferenceKind, reference_info: *const jvmtiHeapReferenceInfo, class_tag: jlong,
-                                             referrer_class_tag: jlong, size: jlong, tag_ptr: *mut jlong, referrer_tag_ptr: *mut jlong, length: jint,
-                                             user_data: *mut c_void) -> jint where F: FnMut(jlong){
-    println!(" call back class tag :{}", class_tag);
-    let closure = &mut *(user_data as *mut F);
-    // 执行回调
-    closure(class_tag);
-    JVMTI_VISIT_OBJECTS as jint
 }
 
 
-/// 需要传到 C 侧的回调
-unsafe extern fn hook<F>(result: jlong, user_data: *mut c_void)
-    where F: FnMut(jlong) {
-    let closure = &mut *(user_data as *mut F);
-    closure(result);
-}
 
-pub fn get_callback<F>(_closure: &F) -> jvmtiHeapReferenceCallback
-    where F: FnMut(jlong) {
-    Some(heap_reference_callback::<F>)
-}
+

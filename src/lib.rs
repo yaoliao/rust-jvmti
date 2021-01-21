@@ -42,6 +42,7 @@ pub mod runtime;
 pub mod thread;
 pub mod util;
 pub mod version;
+mod event_callback;
 
 /*
  * TODO The functions below are essentially parts of an actual client implementation. Because this
@@ -244,8 +245,11 @@ pub extern fn Agent_OnAttach(vm: JavaVMPtr, options: MutString, reserved: VoidPt
 
 
     println!("开始 获取加载类========================");
-    agent.get_loaded_classes();
-    println!("结束 获取加载类========================");
+    let vec_class = agent.get_loaded_classes().ok().unwrap();
+    println!("结束 获取加载类========================  class size: {}", vec_class.len());
+
+    agent.print_class_histo();
+
 
     return 0;
 }

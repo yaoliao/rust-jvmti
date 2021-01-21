@@ -81,7 +81,7 @@ pub struct ClassId {
     pub native_id: JavaClass
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ClassSignature {
     pub package: String,
     pub name: String
