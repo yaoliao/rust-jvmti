@@ -10,7 +10,7 @@ use super::version::VersionNumber;
 use class::ClassSignature;
 
 pub struct Agent {
-    jvm: Box<JVMF>,
+    pub jvm: Box<JVMF>,
     pub capabilities: Capabilities,
     callbacks: EventCallbacks,
     environment: Box<JVMTI>

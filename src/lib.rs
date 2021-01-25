@@ -6,6 +6,7 @@ extern crate serde_derive;
 extern crate time;
 extern crate toml;
 extern crate serde;
+extern crate nix;
 
 use std::io::Cursor;
 
@@ -43,6 +44,12 @@ pub mod thread;
 pub mod util;
 pub mod version;
 mod event_callback;
+mod jvm_native;
+
+use nix::unistd::{fork, ForkResult};
+use std::ptr;
+use jvm_native::jvm;
+use jvm_native::jmm::{JMM_VERSION_1_0, JmmInterface};
 
 /*
  * TODO The functions below are essentially parts of an actual client implementation. Because this
@@ -249,6 +256,49 @@ pub extern fn Agent_OnAttach(vm: JavaVMPtr, options: MutString, reserved: VoidPt
     println!("结束 获取加载类========================  class size: {}", vec_class.len());
 
     agent.print_class_histo();
+
+// pub AttachCurrentThread: Option<unsafe extern "C" fn(vm: *mut JavaVM, penv: *mut *mut c_void, args: *mut c_void) -> jint>,
+    let mut jni_env = ptr::null_mut();
+    let mut jni_env_ptr = &mut jni_env;
+
+    unsafe{
+        // 获取 jni
+        let result = (**vm).AttachCurrentThread.unwrap()(*&vm, jni_env_ptr, ptr::null_mut());
+
+        // 获取 JmmInterface
+        let func = (jvm::JVM_GetManagement.get().unwrap());
+        let s = (*func)(JMM_VERSION_1_0 as i32);
+        let s = s as *mut JmmInterface;
+    }
+
+    /*unsafe {
+        match fork() {
+            Ok(ForkResult::Parent { child, .. }) => {
+                println!("Continuing execution in parent process, new child has pid: {}", child);
+
+                use std::process;
+                println!("parent。。。。。。 My pid is {}", process::id());
+            }
+            Ok(ForkResult::Child) => {
+                println!("I'm a new child process");
+
+                use std::{thread, time};
+                let ten_millis = time::Duration::from_secs(2);
+                thread::sleep(ten_millis);
+
+                println!("这是新的进程哦！！！！！！！！！！！！！");
+
+                use std::process;
+                println!("child。。。。。。 My pid is {}", process::id());
+
+                let vec = agent.get_loaded_classes().ok().unwrap();
+
+                println!("size: {} , 结束了 哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈", vec.len());
+            },
+            Err(_) => println!("Fork failed"),
+        }
+    }*/
+
 
 
     return 0;
